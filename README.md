@@ -23,5 +23,11 @@ If you find this project interesting, feel free to drop me a line at aboudarov@g
 ## QUI
 QUI is a q learning tool that uses as-q library. It is a basic q shell combined with q idioms' code. Log at the bottom shows IPC messages. Code edit view is separate from results view, CTRL+SHIFT execute current line or selection from code view.
 
+![alt tag](http://as-q.weebly.com/uploads/8/1/4/1/8141560/6675681_orig.png)
+
+
+
 ## TAQ
 Trade and quote application is another use case for as-q library. It allows user to drill down into taq database (hope it works with your table schema). I was amazed by responsiveness of this app, which shouldn't come as a surprise considering that there is nothing between Flex and kdb+ except TCP pipe sending raw data. No message queues, no application servers, no frameworks - just data:)
+
+![alt tag](http://as-q.weebly.com/uploads/8/1/4/1/8141560/7849429_orig.png)
