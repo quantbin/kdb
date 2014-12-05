@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:WindowedApplication xmlns:fx="http://ns.adobe.com/mxml/2009"
+		xmlns:s="library://ns.adobe.com/flex/spark"
+		xmlns:mx="library://ns.adobe.com/flex/mx"
+		xmlns:code="http://code.google.com/p/flexlib/"
+		xmlns:controls="controls.*"
+		xmlns:spinner="spinner.*"
+		xmlns:components="components.*"
+		xmlns:ui="ui.*"
+		width="80%"
+		height="80%"
+		showStatusBar="false"
+		title="taq {getAppVersion()}"
+		creationComplete="this_creationCompleteHandler(event)"
+		close="this_closeHandler(event)">
+	<fx:Declarations>
+	</fx:Declarations>
+	<fx:Script>
+		<![CDATA[
+			import air.update.ApplicationUpdaterUI;
+			import air.update.events.UpdateEvent;
+
+			import flash.events.ErrorEvent;
+
+			import mx.controls.Alert;
+			import mx.events.FlexEvent;
+			private static var MAX_LOG_SIZE_BYTES:int=50000;
+
+			private var appUpdater:ApplicationUpdaterUI=new ApplicationUpdaterUI();
+			[Bindable] private var logText:String="";
+
+			protected function this_closeHandler(event:Event):void {
+				if(!connMgr.connected)
+					return;
+				connMgr.q.close();
+				// TODO need to wait here until socket closes
+			}
+
+			private function getAppVersion():String {
+				var appXml:XML=NativeApplication.nativeApplication.applicationDescriptor;
+				var ns:Namespace=appXml.namespace();
+				var appVersion:String=appXml.ns::version[0];
+				return appVersion;
+			}
+
+			protected function this_creationCompleteHandler(event:FlexEvent):void {
+				appUpdater.updateURL="http://as-q.weebly.com/uploads/8/1/4/1/8141560/taq-update.xml";
+				appUpdater.isCheckForUpdateVisible=false;
+				appUpdater.addEventListener(UpdateEvent.INITIALIZED, onUpdate);
+				appUpdater.addEventListener(ErrorEvent.ERROR, onError);
+				appUpdater.initialize();
+			}
+
+			private function onError(event:ErrorEvent):void {
+				Alert.show(event.toString());
+			}
+
+			private function onUpdate(event:UpdateEvent):void {
+				appUpdater.checkNow();
+			}
+
+			private function appendLog(s:String):void {
+				if(logText.length > MAX_LOG_SIZE_BYTES * 1.1) {
+					logText=logText.substr(0, MAX_LOG_SIZE_BYTES);
+				}
+				logText=s + "\n" + logText;
+			}
+		]]>
+	</fx:Script>
+	<mx:VDividedBox width="100%"
+			height="100%"
+			left="5"
+			right="5">
+		<s:VGroup width="100%"
+				height="100%"
+				gap="10">
+			<ui:ConnMgr id="connMgr"/>
+			<components:TaQ q="{connMgr.q}"
+					connected="{connMgr.connected}"
+					appendLog="{appendLog}"
+					width="100%"
+					height="100%"/>
+		</s:VGroup>
+		<s:TextArea id="log"
+				text="@{logText}"
+				fontFamily="Courier New"
+				width="100%"
+				height="0"
+				editable="true"/>
+	</mx:VDividedBox>
+</s:WindowedApplication>

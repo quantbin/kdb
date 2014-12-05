@@ -1,0 +1,766 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:VGroup xmlns:fx="http://ns.adobe.com/mxml/2009"
+		xmlns:s="library://ns.adobe.com/flex/spark"
+		xmlns:mx="library://ns.adobe.com/flex/mx"
+		xmlns:components="components.*"
+		width="100%"
+		height="100%"
+		enabled="{_connected}"
+		creationComplete="this_creationCompleteHandler(event)">
+	<fx:Declarations>
+	</fx:Declarations>
+	<fx:Script>
+		<![CDATA[
+			import asqlib.c;
+
+			import mx.charts.HitData;
+			import mx.charts.chartClasses.IAxis;
+			import mx.charts.events.ChartItemEvent;
+			import mx.collections.ArrayCollection;
+			import mx.collections.Sort;
+			import mx.collections.SortField;
+			import mx.controls.Alert;
+			import mx.events.FlexEvent;
+			import mx.events.ListEvent;
+			import mx.formatters.DateFormatter;
+			import mx.utils.ObjectUtil;
+
+			[Bindable] public var _tradesAndQuotesLevel3:ArrayCollection=new ArrayCollection;
+			private var tradesAndQuotesLevel3Left:Number;
+			private var tradesAndQuotesLevel3Right:Number;
+			public var appendLog:Function;
+			[Bindable] public var _tradesLevel3:ArrayCollection;
+			[Bindable] public var _quotesLevel3:ArrayCollection;
+			[Bindable] private var _quotesLevel2:ArrayCollection;
+			[Bindable] private var _tradesLevel2:ArrayCollection;
+			[Bindable] private var _quotesLevel1:ArrayCollection;
+			[Bindable] private var _tradesLevel1:ArrayCollection;
+			[Bindable] private var _sym:ArrayCollection;
+			[Bindable] private var fltr:String="";
+			[Bindable] private var xRangeHighLevel1:Number=1;
+			[Bindable] private var xRangeLowLevel1:Number=0;
+			[Bindable] private var yRangeHighLevel1:Number=1;
+			[Bindable] private var yRangeLowLevel1:Number=0;
+			[Bindable] private var xRangeHighLevel2:Number=1;
+			[Bindable] private var xRangeLowLevel2:Number=0;
+			[Bindable] private var yRangeHighLevel2:Number=1;
+			[Bindable] private var yRangeLowLevel2:Number=0;
+			[Bindable] private var xRangeHighLevel3:Number=1;
+			[Bindable] private var xRangeLowLevel3:Number=0;
+			[Bindable] private var yRangeHighLevel3:Number=1;
+			[Bindable] private var yRangeLowLevel3:Number=0;
+			[Bindable] private var _connected:Boolean=false;
+			[Bindable] private var nodata1:Boolean=false;
+			[Bindable] private var loading1:Boolean=false;
+			[Bindable] private var loading2:Boolean=false;
+			[Bindable] private var loading3:Boolean=false;
+			[Bindable] public var q:c;
+			private var df:DateFormatter=new DateFormatter;
+			private var dt:Date=new Date;
+
+			public function set connected(c:Boolean):void {
+				_connected=c;
+				if(_connected) {
+					q.ksync("sym", this, "sym", "onKerror");
+				} else {
+					nodata1=false;
+					loading1=false;
+					loading2=false;
+					loading3=false;
+				}
+			}
+
+			public function tr(s:String):void {
+				trace("taq: " + s);
+				appendLog(s);
+			}
+
+			public function set onKerror(e:String):void {
+				Alert.show(e);
+				trace("taq error: " + e);
+			}
+
+			public function set onWarn(e:String):void {
+				Alert.show(e);
+				trace("taq warn: " + e);
+			}
+
+			public function set sym(ac:ArrayCollection):void {
+				this.enabled=true;
+				ac.filterFunction=fltrFun;
+				_sym=ac;
+			}
+
+			public function set quotesLevel1(dict:Object):void {
+				var ac:ArrayCollection=dict2ac(dict);
+				_quotesLevel1=ac;
+			}
+
+			public function set quotesLevel2(dict:Object):void {
+				loading2=false;
+				var ac:ArrayCollection=dict2ac(dict);
+				if(0 == ac.length)
+					return;
+				for each(var o:Object in ac) {
+					o["ft"]=Number(o["ft"]) * 5000; //quotes arrive at 5 sec interval; trades are each ms
+				}
+				var ftRange:Object=calcRange(ac, "ft");
+				var bidRange:Object=calcRange(ac, "bid_low");
+				var askRange:Object=calcRange(ac, "ask_high");
+				var yh:Number=Math.max(bidRange.high, askRange.high, yRangeHighLevel2);
+				var yl:Number=Math.min(bidRange.low, askRange.low, yRangeLowLevel2);
+				var xh:Number=Math.max(ftRange.high, xRangeHighLevel2);
+				var xl:Number=Math.min(ftRange.low, xRangeLowLevel2);
+				yRangeHighLevel2=yh;
+				yRangeLowLevel2=yl;
+				xRangeHighLevel2=xh;
+				xRangeLowLevel2=xl;
+				padRange(2);
+				traceRange(2);
+				_quotesLevel2=ac;
+			}
+
+			public function set quotesLevel3(dict:Object):void {
+				appendLog("quotesLevel3 arrived");
+				loading3=false;
+				var ac:ArrayCollection=dict2ac(dict);
+				if(0 == ac.length)
+					return;
+				var ftRange:Object=calcRange(ac, "ft");
+				var bidRange:Object=calcRange(ac, "bid");
+				var askRange:Object=calcRange(ac, "ask");
+				var yh:Number=Math.max(bidRange.high, askRange.high, yRangeHighLevel3);
+				var yl:Number=Math.min(bidRange.low, askRange.low, yRangeLowLevel3);
+				var xh:Number=Math.max(ftRange.high, xRangeHighLevel3);
+				var xl:Number=Math.min(ftRange.low, xRangeLowLevel3);
+				appendLog("ck1");
+				yRangeHighLevel3=yh;
+				yRangeLowLevel3=yl;
+				xRangeHighLevel3=xh;
+				xRangeLowLevel3=xl;
+				padRange(3);
+				appendLog("ck2");
+				traceRange(3);
+				appendLog("ck3");
+				_quotesLevel3=ac;
+				appendLog("ck4");
+				_tradesAndQuotesLevel3.addAll(ac);
+				appendLog("ck5");
+			}
+
+			public function set tradesLevel1(dict:Object):void {
+				loading1=false;
+				var ac:ArrayCollection=dict2ac(dict);
+				if(0 == ac.length) {
+					nodata1=true;
+					return;
+				}
+				nodata1=false;
+				var r:Object=calcRanges(ac);
+				yRangeHighLevel1=r.yh;
+				yRangeLowLevel1=r.yl;
+				xRangeHighLevel1=r.xh;
+				xRangeLowLevel1=r.xl;
+				padRange(1);
+				traceRange(1);
+				_tradesLevel1=ac;
+				loading1=false;
+			}
+
+			public function set tradesLevel2(dict:Object):void {
+				var ac:ArrayCollection=dict2ac(dict);
+				if(0 == ac.length)
+					return;
+				var ftRange:Object=calcRange(ac, "ft");
+				var priceRange:Object=calcRange(ac, "price");
+				var yh:Number=priceRange.high;
+				var yl:Number=priceRange.low;
+				var xh:Number=ftRange.high;
+				var xl:Number=ftRange.low;
+				yRangeHighLevel2=yh;
+				yRangeLowLevel2=yl;
+				xRangeHighLevel2=xh;
+				xRangeLowLevel2=xl;
+				padRange(2);
+				traceRange(2);
+				if(yRangeHighLevel2 <= yRangeLowLevel2)
+					Alert.show("range error");
+				if(xRangeHighLevel2 <= xRangeLowLevel2)
+					Alert.show("range error");
+				_tradesLevel2=ac;
+			}
+
+			public function set tradesLevel3(dict:Object):void {
+				appendLog("tradesLevel3 arrived");
+				var ac:ArrayCollection=dict2ac(dict);
+				appendLog("tradesLevel3 arrived 2");
+				if(0 == ac.length)
+					return;
+				var ftRange:Object=calcRange(ac, "ft");
+				var priceRange:Object=calcRange(ac, "price");
+				var yh:Number=priceRange.high;
+				var yl:Number=priceRange.low;
+				var xh:Number=ftRange.high;
+				var xl:Number=ftRange.low;
+				yRangeHighLevel3=yh;
+				yRangeLowLevel3=yl;
+				xRangeHighLevel3=xh;
+				xRangeLowLevel3=xl;
+				padRange(3);
+				traceRange(3);
+				_tradesLevel3=ac;
+				_tradesAndQuotesLevel3.addAll(ac);
+			}
+
+			protected function level1_changeHandler(event:SelectionChangedEvent):void {
+				// time in 5 min intervals
+				var startS:String=dateFromMs(event.left * 1000 * 60 * 5);
+				var endS:String=dateFromMs(event.right * 1000 * 60 * 5)
+				df.formatString="YYYY.MM.DD";
+				var fd:String=df.format(d.selectedDate);
+				//reset data and range selectors on charts above
+				level2RangeSelector.reset();
+				level3RangeSelector.reset();
+				_tradesLevel3=null;
+				_quotesLevel3=null;
+				_tradesAndQuotesLevel3.removeAll();
+				_tradesAndQuotesLevel3.filterFunction=null;
+				tradesAndQuotesLevel3Grid.dataProvider=null;
+				// trades
+				_tradesLevel2=null;
+				//var cmd:String="select ft:floor (first time)%00:00:05.000, vol: sum totvol, high:max price, low:min price, open:first price, close:last price by (floor time%00:00:05.000) from trade where date=" + fd + ",sym=`" + symList.selectedItem + ",price>0,time>" + startS + ",time<" + endS;
+				var cmd:String="select ft:floor time%00:00:00.001, price from trade where date=" + fd + ",sym=`$\"" + symList.selectedItem + "\",price>0,time>" + startS + ",time<" + endS;
+				q.ksync(cmd, this, "tradesLevel2", "onKerror", "onWarn", tr);
+				// quotes
+				_quotesLevel2=null;
+				cmd="select ft:floor (first time)%00:00:05.000, ask_high:max ask, ask_low:min ask, ask_open:first ask, ask_close:last ask, bid_high:max bid, bid_low:min bid, bid_open:first bid, bid_close:last bid by (floor time%00:00:05.000) from quote where ask>0, bid>0, date=" + fd + ",sym=`$\"" + symList.selectedItem + "\",time>" + startS + ",time<" + endS;
+				q.ksync(cmd, this, "quotesLevel2", "onKerror", "onWarn", tr);
+			}
+			
+			protected function level2_changeHandler(event:SelectionChangedEvent):void {
+				var startS:String=dateFromMs(event.left);
+				var endS:String=dateFromMs(event.right)
+				var df:DateFormatter=new DateFormatter;
+				df.formatString="YYYY.MM.DD";
+				var fd:String=df.format(d.selectedDate);
+				level3RangeSelector.reset();
+				// trades
+				var cmd:String="select ft:floor time%00:00:00.001, price from trade where date=" + fd + ",sym=`$\"" + symList.selectedItem + "\",price>0,time>" + startS + ",time<" + endS;
+				q.ksync(cmd, this, "tradesLevel3", "onKerror", "onWarn", tr);
+				_tradesLevel3=null;
+				// quotes
+				cmd="select ft:floor time%00:00:00.001, bid, bsize, ask, asize from quote where ask>0, bid>0, date=" + fd + ",sym=`$\"" + symList.selectedItem + "\",time>" + startS + ",time<" + endS;
+				q.ksync(cmd, this, "quotesLevel3", "onKerror", "onWarn", tr);
+				_quotesLevel3=null;
+				tradesAndQuotesLevel3Grid.dataProvider=null;
+				_tradesAndQuotesLevel3.removeAll();
+				_tradesAndQuotesLevel3.filterFunction=null;
+				loading3=true;
+			}
+
+			protected function level3_changeHandler(event:SelectionChangedEvent):void {
+				tradesAndQuotesLevel3Left=event.left;
+				tradesAndQuotesLevel3Right=event.right;
+				if(null == _tradesAndQuotesLevel3.filterFunction)
+					_tradesAndQuotesLevel3.filterFunction=tradesAndQuotesLevel3Filter;
+				//if (null==tradesAndQuotesLevel3Grid.dataProvider)
+					tradesAndQuotesLevel3Grid.dataProvider=_tradesAndQuotesLevel3;
+				_tradesAndQuotesLevel3.refresh();
+			}
+
+			protected function tradesAndQuotesLevel3Grid_changeHandler(event:ListEvent):void {
+				if(null != tradesAndQuotesLevel3Grid.selectedItem) {
+					if(null != tradesAndQuotesLevel3Grid.selectedItem["price"]) {
+
+					} else {
+
+					}
+				}
+			}
+
+			protected function loadSym_clickHandler(e:MouseEvent):void {
+				var df:DateFormatter=new DateFormatter;
+				df.formatString="YYYY.MM.DD";
+				var fd:String=df.format(d.selectedDate);
+				var cmd:String="select ft:floor (first time)%00:05:00.000, high:max price, low:min price, open:first price, close:last price by (floor time%00:05:00.000) from trade where date=" + fd + ",sym=`$\"" + symList.selectedItem + "\",price>0";
+				trace(cmd);
+				q.ksync(cmd, this, "tradesLevel1", "onKerror", "onWarn", tr);
+				_tradesLevel1=null;
+				_quotesLevel1=null;
+				_quotesLevel2=null;
+				_tradesLevel2=null;
+				_quotesLevel3=null;
+				_tradesLevel3=null;
+				loading1=true;
+				nodata1=false;
+			}
+
+			protected function this_creationCompleteHandler(event:FlexEvent):void {
+				level3RangeSelector.addEventListener(RangeSelector.SELECTION_CHANGED, level3_changeHandler);
+				level2RangeSelector.addEventListener(RangeSelector.SELECTION_CHANGED, level2_changeHandler);
+				level1RangeSelector.addEventListener(RangeSelector.SELECTION_CHANGED, level1_changeHandler);
+				var sf:SortField=new SortField();
+				sf.name="ft";
+				sf.numeric=false;
+				var s:Sort=new Sort();
+				s.fields=[ sf ];
+				_tradesAndQuotesLevel3.sort=s;
+			}
+
+			private function tradesAndQuotesLevel3Filter(o:Object):Boolean {
+				if(isNaN(tradesAndQuotesLevel3Right) || isNaN(tradesAndQuotesLevel3Left))
+					return false;
+				if(null == o)
+					return false;
+				if(!o.hasOwnProperty("ft")) {
+					appendLog("tradesAndQuotesLevel3Filter: ft prop not found on " + ObjectUtil.toString(o));
+					return false;
+				}
+				if(isNaN(o.ft)) {
+					appendLog("tradesAndQuotesLevel3Filter: ft isnan");
+					return false;
+				}
+				if(Number(o.ft) > tradesAndQuotesLevel3Left && Number(o.ft) < tradesAndQuotesLevel3Right) {
+					return true;
+				} else {
+					return false;
+				}
+			}
+
+			private function fltrFun(o:Object):Boolean {
+				var s:String=String(o);
+				if("" == fltr) {
+					return true;
+				}
+				if(-1 == s.toUpperCase().indexOf(fltr.toUpperCase())) {
+					return false;
+				} else {
+					return true;
+				}
+			}
+
+			private function padTime(t:Number, pos:int=2):String {
+				var s:String=String(t);
+				for(var i:int=0; i < pos - s.length; i++)
+					s="0" + s;
+				return s;
+			}
+
+			private function dict2ac(dict:Object):ArrayCollection {
+				if(dict is ArrayCollection)
+					return dict as ArrayCollection;
+				var ac:ArrayCollection=new ArrayCollection;
+				// dict dimention - grab length from the first attribute
+				var prop:String;
+				var len:int;
+				var dictv:Object;
+				if(dict.hasOwnProperty("v")) {
+					// keyed table
+					dictv=dict["v"];
+				} else {
+					dictv=dict;
+				}
+				for(prop in dictv) {
+					len=dictv[prop].length;
+					break;
+				}
+				for(var ii:int=0; ii < len; ii++) {
+					var ao:Object=new Object;
+					for(prop in dictv) {
+						try {
+							ao[prop]=dictv[prop][ii];
+						} catch(er:Error) {
+							appendLog("err: " + er.message);
+						}
+					}
+					ac.addItem(ao);
+				}
+				return ac;
+			}
+
+			private function calcRange(ac:ArrayCollection, f:String):Object {
+				var h:Number=-1;
+				var l:Number=-1;
+				for each(var o:Object in ac) {
+					if(-1 == h) {
+						h=Number(o[f]);
+					}
+					if(-1 == l) {
+						l=Number(o[f]);
+					}
+					if(Number(o[f]) < l) {
+						l=Number(o[f]);
+					}
+					if(Number(o[f]) > h) {
+						h=Number(o[f]);
+					}
+				}
+				return { low:l, high:h };
+			}
+
+			private function calcRanges(ac:ArrayCollection):Object {
+				var yh:Number=-1;
+				var yl:Number=-1;
+				var xh:Number=-1;
+				var xl:Number=-1;
+				for each(var o:Object in ac) {
+					if(-1 == yh) {
+						yh=Number(o["high"]);
+					}
+					if(-1 == yl) {
+						yl=Number(o["low"]);
+					}
+					if(-1 == xh) {
+						xh=Number(o["ft"]);
+					}
+					if(-1 == xl) {
+						xl=Number(o["ft"]);
+					}
+					if(Number(o["low"]) < yl) {
+						yl=Number(o["low"]);
+					}
+					if(Number(o["high"]) > yh) {
+						yh=Number(o["high"]);
+					}
+					if(Number(o["ft"]) < xl) {
+						xl=Number(o["ft"]);
+					}
+					if(Number(o["ft"]) > xh) {
+						xh=Number(o["ft"]);
+					}
+				}
+				if(yh <= yl)
+					Alert.show("range error");
+				if(xh <= xl)
+					Alert.show("range error");
+				return { yh:yh, yl:yl, xh:xh, xl:xl };
+			}
+
+			private function traceRange(i:int):void {
+				switch(i) {
+					case 1:
+						trace("yRangeHighLevel1=" + yRangeHighLevel1);
+						trace("yRangeLowLevel1=" + yRangeLowLevel1);
+						trace("xRangeHighLevel1=" + xRangeHighLevel1);
+						trace("xRangeLowLevel1=" + xRangeLowLevel1);
+						break;
+					case 2:
+						trace("yRangeHighLevel2=" + yRangeHighLevel2);
+						trace("yRangeLowLevel2=" + yRangeLowLevel2);
+						trace("xRangeHighLevel2=" + xRangeHighLevel2);
+						trace("xRangeLowLevel2=" + xRangeLowLevel2);
+						break;
+					case 3:
+						trace("yRangeHighLevel3=" + yRangeHighLevel3);
+						trace("yRangeLowLevel3=" + yRangeLowLevel3);
+						trace("xRangeHighLevel3=" + xRangeHighLevel3);
+						trace("xRangeLowLevel3=" + xRangeLowLevel3);
+						break;
+				}
+			}
+
+			private function padPair(low:Number, high:Number, xaxis:Boolean=false):Object {
+				var paddingPctEq:Number=.0002;
+				var paddingPct:Number=.01;
+				if(low > high) {
+					Alert.show("*range error");
+					return { low:0, high:0 };
+				}
+				if(low == high) {
+					if(!xaxis) {
+						low=low * (1 - paddingPctEq);
+						high=high * (1 + paddingPctEq);
+					} else {
+						low=low - 1;
+						high=high + 1;
+					}
+				} else {
+					low=low - (high - low) * paddingPct;
+					high=high + (high - low) * paddingPct;
+				}
+				return { low:low, high:high };
+			}
+
+			private function padRange(i:int):void {
+				var pad:Object;
+				switch(i) {
+					case 1:
+						pad=padPair(yRangeLowLevel1, yRangeHighLevel1);
+						yRangeLowLevel1=pad.low;
+						yRangeHighLevel1=pad.high;
+						pad=padPair(xRangeLowLevel1, xRangeHighLevel1, true);
+						xRangeLowLevel1=pad.low;
+						xRangeHighLevel1=pad.high;
+						break;
+					case 2:
+						pad=padPair(yRangeLowLevel2, yRangeHighLevel2);
+						yRangeLowLevel2=pad.low;
+						yRangeHighLevel2=pad.high;
+						pad=padPair(xRangeLowLevel2, xRangeHighLevel2, true);
+						xRangeLowLevel2=pad.low;
+						xRangeHighLevel2=pad.high;
+						break;
+					case 3:
+						pad=padPair(yRangeLowLevel3, yRangeHighLevel3);
+						yRangeLowLevel3=pad.low;
+						yRangeHighLevel3=pad.high;
+						pad=padPair(xRangeLowLevel3, xRangeHighLevel3, true);
+						xRangeLowLevel3=pad.low;
+						xRangeHighLevel3=pad.high;
+						break;
+				}
+			}
+
+			private function dateFrom5Min(n:Number):String {
+				return dateFromMin(n * 5);
+			}
+
+			private function dateFromMin(n:Number):String {
+				var h:Number=Math.floor(n / 60);
+				var m:Number=Math.floor(n - h * 60);
+				return padTime(h) + ":" + padTime(m);
+			}
+
+			private function dateFromSec(n:Number):String {
+				var h:Number=Math.floor(n / 3600);
+				var m:Number=Math.floor(n / 60 - h * 60);
+				var s:Number=Math.floor(n - h * 3600 - m * 60);
+				return padTime(h) + ":" + padTime(m) + ":" + padTime(s);
+			}
+
+			private function dateFromMs(n:Number):String {
+				var h:Number=Math.floor(n / (3600 * 1000));
+				var m:Number=Math.floor((n - h * 3600 * 1000) / (60 * 1000));
+				var s:Number=Math.floor((n - h * 3600 * 1000 - m * 60 * 1000) / 1000);
+				var ms:Number=Math.floor(n - h * 3600 * 1000 - m * 60 * 1000 - s * 1000);
+				return padTime(h) + ":" + padTime(m) + ":" + padTime(s) + "." + padTime(ms, 3);
+			}
+
+			private function level1DataTipFunction(hd:HitData):String {
+				return dateFromMin(Number(hd.item.ft) * 5) + "<br>Open: " + hd.item.open + "<br>Close: " + hd.item.close + "<br>High: " + hd.item.high + "<br>Low: " + hd.item.low;
+			}
+
+			private function level1HorizLabel(labelValue:Object, previousLabelValue:Object, axis:IAxis):String {
+				return dateFromMin(Number(labelValue) * 5);
+			}
+
+			private function level2HorizLabel(labelValue:Object, previousLabelValue:Object, axis:IAxis):String {
+				return dateFromSec(Number(labelValue) / 1000);
+			}
+
+			private function timeLabelFunction(o:Object, column:DataGridColumn):String {
+				return dateFromMs(Number(o["ft"]));
+			}
+		]]>
+	</fx:Script>
+	<s:HGroup verticalAlign="middle">
+		<s:Label text="Symbol lookup:"/>
+		<s:TextInput text="@{fltr}"
+				width="60"
+				change="if (null==_sym)return;_sym.refresh(); symList.validateNow();symList.selectedIndex=0"/>
+		<s:DropDownList id="symList"
+				dataProvider="{_sym}"/>
+		<mx:DateField id="d"/>
+		<s:Button label="Load"
+				enabled="{null!=d.selectedDate}"
+				click="loadSym_clickHandler(event)"/>
+	</s:HGroup>
+	<mx:Canvas width="100%"
+			height="100%">
+		<s:HGroup width="100%"
+				height="100%"
+				enabled="{!loading3}">
+			<mx:PlotChart showDataTips="false"
+					selectionMode="single"
+					width="100%"
+					height="100%">
+				<mx:annotationElements>
+					<components:RangeSelector id="level3RangeSelector"
+							labelFunc="{dateFromMs}"/>
+				</mx:annotationElements>
+				<mx:verticalAxis>
+					<mx:LinearAxis minimum="{yRangeLowLevel3}"
+							maximum="{yRangeHighLevel3}"/>
+				</mx:verticalAxis>
+				<mx:horizontalAxis>
+					<mx:LinearAxis labelFunction="level2HorizLabel"
+							minimum="{xRangeLowLevel3}"
+							maximum="{xRangeHighLevel3}"/>
+				</mx:horizontalAxis>
+				<mx:series>
+					<mx:PlotSeries id="bid"
+							dataProvider="{_quotesLevel3}"
+							xField="ft"
+							yField="bid"
+							radius="2"
+							displayName="Bid"
+							selectable="true"/>
+					<mx:PlotSeries id="ask"
+							dataProvider="{_quotesLevel3}"
+							xField="ft"
+							yField="ask"
+							radius="2"
+							displayName="Ask"
+							selectable="true"/>
+					<mx:PlotSeries id="trade"
+							dataProvider="{_tradesLevel3}"
+							xField="ft"
+							yField="price"
+							radius="2"
+							displayName="Trade"
+							selectable="true"/>
+				</mx:series>
+			</mx:PlotChart>
+			<mx:DataGrid id="tradesAndQuotesLevel3Grid"
+					sortableColumns="false"
+					height="100%"
+					maxWidth="400"
+					change="tradesAndQuotesLevel3Grid_changeHandler(event)">
+				<mx:columns>
+					<mx:DataGridColumn headerText="time"
+							dataField="ft"
+							labelFunction="timeLabelFunction"/>
+					<mx:DataGridColumn headerText="bid"
+							dataField="bid"/>
+					<mx:DataGridColumn headerText="bsize"
+							dataField="bsize"/>
+					<mx:DataGridColumn headerText="ask"
+							dataField="ask"/>
+					<mx:DataGridColumn headerText="asize"
+							dataField="asize"/>
+					<mx:DataGridColumn headerText="price"
+							dataField="price"/>
+				</mx:columns>
+			</mx:DataGrid>
+		</s:HGroup>
+		<s:Label text="Loading..."
+				horizontalCenter="0"
+				verticalCenter="0"
+				visible="{loading3}"/>
+	</mx:Canvas>
+	<mx:Canvas width="100%"
+			height="100%">
+		<mx:LineChart showDataTips="false"
+				enabled="{!loading2}"
+				selectionMode="none"
+				width="100%"
+				height="100%"
+				seriesFilters="[]">
+			<mx:annotationElements>
+				<components:RangeSelector id="level2RangeSelector"
+						labelFunc="{dateFromMs}"/>
+			</mx:annotationElements>
+			<mx:verticalAxis>
+				<mx:LinearAxis minimum="{yRangeLowLevel2}"
+						maximum="{yRangeHighLevel2}"/>
+			</mx:verticalAxis>
+			<mx:horizontalAxis>
+				<mx:LinearAxis labelFunction="level2HorizLabel"
+						minimum="{xRangeLowLevel2}"
+						maximum="{xRangeHighLevel2}"/>
+			</mx:horizontalAxis>
+			<mx:series>
+				<mx:LineSeries dataProvider="{_quotesLevel2}"
+						interpolateValues="false"
+						form="horizontal"
+						yField="ask_high"
+						xField="ft"
+						displayName="Ask High">
+					<mx:lineStroke>
+						<mx:SolidColorStroke color="0x009966"
+								weight="2"/>
+					</mx:lineStroke>
+				</mx:LineSeries>
+				<mx:LineSeries dataProvider="{_quotesLevel2}"
+						interpolateValues="false"
+						form="horizontal"
+						yField="ask_low"
+						xField="ft"
+						displayName="Ask Low">
+					<mx:lineStroke>
+						<mx:SolidColorStroke color="0x009966"
+								weight="1"/>
+					</mx:lineStroke>
+				</mx:LineSeries>
+				<mx:LineSeries dataProvider="{_quotesLevel2}"
+						interpolateValues="false"
+						form="horizontal"
+						yField="bid_high"
+						xField="ft"
+						displayName="Bid High">
+					<mx:lineStroke>
+						<mx:SolidColorStroke color="0xFF3300"
+								weight="1"/>
+					</mx:lineStroke>
+				</mx:LineSeries>
+				<mx:LineSeries dataProvider="{_quotesLevel2}"
+						interpolateValues="false"
+						form="horizontal"
+						yField="bid_low"
+						xField="ft"
+						displayName="Bid Low">
+					<mx:lineStroke>
+						<mx:SolidColorStroke color="0xFF3300"
+								weight="2"/>
+					</mx:lineStroke>
+				</mx:LineSeries>
+				<mx:PlotSeries id="tradesLevel2Chart"
+						dataProvider="{_tradesLevel2}"
+						xField="ft"
+						yField="price"
+						radius="3"
+						displayName="Trade"
+						selectable="true"/>
+			</mx:series>
+		</mx:LineChart>
+		<s:Label text="Loading..."
+				horizontalCenter="0"
+				verticalCenter="0"
+				visible="{loading2}"/>
+	</mx:Canvas>
+	<mx:Canvas width="100%"
+			height="100%">
+		<mx:CandlestickChart id="level1"
+				enabled="{!loading1}"
+				dataTipFunction="level1DataTipFunction"
+				showDataTips="true"
+				selectionMode="none"
+				width="100%"
+				height="100%">
+			<mx:annotationElements>
+				<components:RangeSelector id="level1RangeSelector"
+						labelFunc="{dateFrom5Min}"/>
+			</mx:annotationElements>
+			<mx:verticalAxis>
+				<mx:LinearAxis minimum="{yRangeLowLevel1}"
+						maximum="{yRangeHighLevel1}"/>
+			</mx:verticalAxis>
+			<mx:horizontalAxis>
+				<mx:LinearAxis interval="2"
+						labelFunction="level1HorizLabel"
+						minimum="{xRangeLowLevel1}"
+						maximum="{xRangeHighLevel1}"/>
+			</mx:horizontalAxis>
+			<mx:series>
+				<mx:CandlestickSeries id="tradesLevel1Chart"
+						dataProvider="{_tradesLevel1}"
+						xField="ft"
+						openField="open"
+						highField="high"
+						lowField="low"
+						closeField="close"
+						displayName="Trades"
+						selectable="true">
+				</mx:CandlestickSeries>
+			</mx:series>
+		</mx:CandlestickChart>
+		<s:Label text="Loading..."
+				horizontalCenter="0"
+				verticalCenter="0"
+				visible="{loading1}"/>
+		<s:Label text="No Data"
+				horizontalCenter="0"
+				verticalCenter="0"
+				visible="{nodata1}"/>
+	</mx:Canvas>
+</s:VGroup>

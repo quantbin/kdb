@@ -1,0 +1,462 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:WindowedApplication xmlns:fx="http://ns.adobe.com/mxml/2009"
+		xmlns:s="library://ns.adobe.com/flex/spark"
+		xmlns:mx="library://ns.adobe.com/flex/mx"
+		width="80%"
+		height="80%"
+		close="this_closeHandler(event)"
+		xmlns:controls="controls.*"
+		xmlns:spinner="spinner.*"
+		xmlns:components="components.*"
+		showStatusBar="false"
+		title="qui {getAppVersion()}"
+		creationComplete="this_creationCompleteHandler(event)">
+	<fx:Declarations>
+		<s:Sequence id="shake"
+				target="{resultt}"
+				duration="30">
+			<s:Move yBy="4"/>
+			<s:Move yBy="-4"/>
+		</s:Sequence>
+	</fx:Declarations>
+	<fx:Script>
+		<![CDATA[
+			import air.update.ApplicationUpdaterUI;
+			import air.update.events.UpdateEvent;
+
+			import flash.events.ErrorEvent;
+
+			import mx.collections.ArrayCollection;
+			import mx.controls.Alert;
+			import mx.core.ByteArrayAsset;
+			import mx.events.FlexEvent;
+			import mx.utils.ObjectUtil;
+			import mx.utils.StringUtil;
+
+			import spark.events.IndexChangeEvent;
+			import spark.events.TextOperationEvent;
+			private static var MAX_LOG_SIZE_BYTES:int=5000;
+			private static var MAX_TA_SIZE_BYTES:int=10000;
+			private var currDir:String="";
+			[Bindable] private var _heapAvail:String="N/A";
+			[Bindable] private var _dirs:ArrayCollection;
+			[Bindable] private var _vars:ArrayCollection;
+			[Bindable] private var _funs:ArrayCollection;
+			[Bindable] private var _fun:String;
+			[Bindable] private var _var:Object;
+			[Embed(source="/qidioms.txt", mimeType="application/octet-stream")]
+			private var qidiomsc:Class;
+			[Bindable] private var qidiomsHeaders:ArrayCollection=new ArrayCollection;
+			private var qidiomsTopics:ArrayCollection=new ArrayCollection;
+			[Bindable] private var idiomsFilter:String="";
+			private var lastAnchor:int;
+			private var lastActive:int;
+			private var ctrlUpMs:Number=0;
+			private var qre:RegExp=/^q\)/gm;
+			private var closing:Boolean=false;
+			private var appUpdater:ApplicationUpdaterUI=new ApplicationUpdaterUI();
+			[Bindable] private var logText:String="";
+			[Bindable] private var resultText:String="";
+			[Bindable] private var commandText:String="";
+			private var _timer:Number;
+			private var safeExec:Boolean=true;
+
+			public function set timer(t:Number):void {
+				_timer=t;
+			}
+
+			public function set heapAvail(t:Object):void {
+				//Alert.show(ObjectUtil.toString(ArrayCollection(t).getItemAt(1)));
+				_heapAvail=ObjectUtil.toString(ArrayCollection(t).getItemAt(1));
+			}
+
+			protected function this_creationCompleteHandler(event:FlexEvent):void {
+				//autoupdate
+				appUpdater.updateURL="http://www.weebly.com/uploads/8/1/4/1/8141560/qui-update.xml";
+				appUpdater.isCheckForUpdateVisible=false;
+				appUpdater.addEventListener(UpdateEvent.INITIALIZED, onUpdate);
+				appUpdater.addEventListener(ErrorEvent.ERROR, onError);
+				appUpdater.initialize();
+				//idioms
+				var qidiomsa:ByteArrayAsset=ByteArrayAsset(new qidiomsc());
+				var s:String=qidiomsa.readUTFBytes(qidiomsa.length);
+				var topic:String="";
+				var n:int=1;
+				var arr:Array=s.split("\n");
+				for each(var line:String in arr) {
+					var beg:String=n + ". ";
+					if(null != line.match(new RegExp("^[0-9]+[a-f]*\\. (.*)"))) {
+						qidiomsHeaders.addItem({ line:line, n:n });
+						if(n > 1) {
+							qidiomsTopics.addItem(topic);
+						}
+						topic="";
+						n=n + 1;
+					} else {
+						topic=topic + line;
+					}
+				}
+				qidiomsTopics.addItem(topic);
+				qidiomsHeaders.filterFunction=fltrFun;
+				//
+				listVars.scroller.setStyle("horizontalScrollPolicy", "off");
+				listFuns.scroller.setStyle("horizontalScrollPolicy", "off");
+			}
+
+			private function getAppVersion():String {
+				var appXml:XML=NativeApplication.nativeApplication.applicationDescriptor;
+				var ns:Namespace=appXml.namespace();
+				var appVersion:String=appXml.ns::version[0];
+				return appVersion;
+			}
+
+			private function onError(event:ErrorEvent):void {
+				Alert.show(event.toString());
+			}
+
+			private function onUpdate(event:UpdateEvent):void {
+				appUpdater.checkNow();
+			}
+
+			protected function filter_changeHandler(event:TextOperationEvent):void {
+				qidiomsHeaders.refresh();
+			}
+
+			protected function filter_keyUpHandler(event:KeyboardEvent):void {
+				if(Keyboard.ESCAPE == event.keyCode)
+					idiomsFilter="";
+				qidiomsHeaders.refresh();
+			}
+
+			protected function qidiomsHeadersL_changeHandler(event:IndexChangeEvent):void {
+				if(qidiomsHeadersL.selectedIndex != -1) {
+					qidiomsTopicsT.text=String(qidiomsTopics.getItemAt(Number(qidiomsHeadersL.selectedItem.n) - 1));
+				}
+			}
+
+			private function fltrFun(o:Object):Boolean {
+				if(0 == idiomsFilter.length)
+					return true;
+				if(-1 != String(o.line).toUpperCase().indexOf(idiomsFilter.toUpperCase()))
+					return true;
+				else
+					return false;
+			}
+
+			public function set dirs(ac:ArrayCollection):void {
+				_dirs=ac;
+				ac.addItemAt("", 0);
+				dirsL.validateNow();
+				dirsL.selectedItem=currDir;
+			}
+
+			public function set vars(ac:ArrayCollection):void {
+				_vars=ac;
+			}
+
+			public function set funs(ac:ArrayCollection):void {
+				_funs=ac;
+			}
+
+			public function set varr(o:Object):void {
+				onKdata=o;
+			}
+
+			public function set fun(f:String):void {
+				onKdata=f;
+			}
+
+			private function onKconnected(event:FlexEvent):void {
+				refreshWS_clickHandler();
+			}
+
+			private function onKdisconnected(event:FlexEvent):void {
+				currDir="";
+				if(closing) {
+					this.close();
+				}
+			}
+
+			private function appendResult(s:String):void {
+				if(resultText.length > MAX_TA_SIZE_BYTES * 1.1) {
+					resultText=resultText.substr(0, MAX_TA_SIZE_BYTES);
+				}
+				s=s.replace(new RegExp("\\r", "g"), "");
+				if(!isNaN(_timer)) {
+					resultText=s + "----" + _timer + "ms\n" + resultText;
+				} else {
+					resultText=s + "----\n" + resultText;
+				}
+			}
+
+			private function appendCmd(s:String):void {
+				if(commandText.length > MAX_TA_SIZE_BYTES * 1.1) {
+					commandText=commandText.substr(0, MAX_TA_SIZE_BYTES);
+				}
+				commandText=commandText + s;
+			}
+
+			private function appendLog(s:String):void {
+				if(logText.length > MAX_LOG_SIZE_BYTES * 1.1) {
+					logText=logText.substr(0, MAX_LOG_SIZE_BYTES);
+				}
+				logText=s + "\n" + logText;
+			}
+
+			public function set onKdata(o:Object):void {
+				if(null != o) {
+					if(o is String) {
+						if(!safeExec) {
+							appendResult(String(o) + "\n");
+						} else {
+							appendResult(String(o));
+						}
+					} else if(o is ArrayCollection) {
+						var s:String="";
+						for each(var i:Object in ArrayCollection(o)) {
+							s=s + ObjectUtil.toString(i) + ", ";
+						}
+						appendResult(s);
+					} else if(o is Object) {
+						appendResult(ObjectUtil.toString(o));
+					} else {
+						appendResult(ObjectUtil.toString(o));
+					}
+				}
+			}
+
+			public function set onKerror(e:String):void {
+				appendResult("ERROR: " + e + "\n");
+			}
+
+			public function set onWarn(e:String):void {
+				appendResult("WARN: " + e + "\n");
+			}
+
+			private function exec(c:String):void {
+				var cmd:String;
+				c=StringUtil.trim(c);
+				if("\\" != c.charAt(0)) {
+					safeExec=true;
+					cmd=".Q.s[" + c + "]";
+				} else {
+					safeExec=false;
+					cmd=c;
+				}
+				connMgr.q.ksync(cmd, this, "onKdata", "onKerror", "onWarn", tr, "timer");
+			}
+
+			public function tr(s:String):void {
+				appendLog(s);
+				trace(s);
+			}
+
+			protected function this_closeHandler(event:Event):void {
+				if(connMgr.connected) {
+					connMgr.q.close();
+				}
+			}
+
+			protected function tai_keyUpHandler(event:KeyboardEvent):void {
+				if(Keyboard.CONTROL == event.keyCode && event.shiftKey || Keyboard.SHIFT == event.keyCode && event.controlKey) {
+					execute();
+				} else if(event.controlKey && 'e'.charCodeAt(0) == event.charCode) {
+					execute();
+				}
+			}
+
+			private function execute():void {
+				var ta:TextArea=command;
+				var c:String=null;
+				if(-1 != ta.selectionAnchorPosition && -1 != ta.selectionActivePosition) {
+					lastAnchor=ta.selectionAnchorPosition;
+					lastActive=ta.selectionActivePosition;
+					if(ta.selectionAnchorPosition > ta.selectionActivePosition) {
+						c=ta.text.substr(ta.selectionActivePosition, ta.selectionAnchorPosition - ta.selectionActivePosition);
+					} else if(ta.selectionAnchorPosition < ta.selectionActivePosition) {
+						c=ta.text.substr(ta.selectionAnchorPosition, ta.selectionActivePosition - ta.selectionAnchorPosition);
+					}
+				} else {
+					lastAnchor=ta.selectionActivePosition;
+					lastActive=ta.selectionActivePosition;
+				}
+				if(null == c) {
+					// no selection, execute current line
+					c="";
+					var i:int;
+					var off:int=0;
+					var ch:String=ta.text.charAt(ta.selectionActivePosition);
+					if(('\r' == ch || '\n' == ch) && ta.selectionActivePosition > 0) {
+						off=-1;
+					}
+					for(i=ta.selectionActivePosition + off; i >= 0; i--) {
+						if('\r' == ta.text.charAt(i) || '\n' == ta.text.charAt(i))
+							break;
+						c=ta.text.charAt(i) + c;
+					}
+					for(i=ta.selectionActivePosition + off + 1; i < ta.text.length; i++) {
+						if('\r' == ta.text.charAt(i) || '\n' == ta.text.charAt(i))
+							break;
+						c=c + ta.text.charAt(i);
+					}
+					c=StringUtil.trim(c);
+				} else {
+					c=StringUtil.trim(c);
+				}
+				if(null != c && c.length > 0) {
+					exec(c);
+					checkHeap();
+					shake.play();
+				}
+			}
+
+			protected function checkHeap():void {
+				connMgr.q.ksync("\\w", this, "heapAvail", "onKerror", "onWarn", tr);
+			}
+
+			protected function refreshWS_clickHandler(event:MouseEvent=null):void {
+				checkHeap();
+				connMgr.q.ksync("key`", this, "dirs", "onKerror", "onWarn", tr);
+				connMgr.q.ksync("\\v ." + currDir, this, "vars", "onKerror", "onWarn", tr);
+				connMgr.q.ksync("\\f ." + currDir, this, "funs", "onKerror", "onWarn", tr);
+			}
+
+			protected function listVars_clickHandler(event:*):void {
+				if("" == currDir)
+					connMgr.q.ksync(".Q.s " + String(listVars.selectedItem), this, "varr", "onKerror", "onWarn", tr);
+				else
+					connMgr.q.ksync(".Q.s ." + currDir + "." + String(listVars.selectedItem), this, "varr", "onKerror", "onWarn", tr);
+			}
+
+			protected function listFuns_clickHandler(event:*):void {
+				if("" == currDir)
+					connMgr.q.ksync(".Q.s " + String(listFuns.selectedItem), this, "fun", "onKerror", "onWarn", tr);
+				else
+					connMgr.q.ksync(".Q.s ." + currDir + "." + String(listFuns.selectedItem), this, "fun", "onKerror", "onWarn", tr);
+			}
+
+			protected function dirsL_changeHandler(event:IndexChangeEvent):void {
+				currDir=dirsL.selectedItem;
+				refreshWS_clickHandler();
+			}
+		]]>
+	</fx:Script>
+	<s:VGroup width="100%"
+			height="100%"
+			left="5"
+			right="5"
+			bottom="5">
+		<ui:ConnMgr id="connMgr"
+				width="100%"
+				onKconnected="{onKconnected}"
+				onKdisconnected="{onKdisconnected}"/>
+		<mx:VDividedBox enabled="{connMgr.connected}"
+				width="100%"
+				height="100%">
+			<mx:HDividedBox width="100%"
+					height="100%">
+				<s:VGroup height="100%"
+						width="25%">
+					<s:Label text="heap: {_heapAvail}"/>
+					<s:Button id="refreshWS"
+							label="Refresh workspace"
+							click="refreshWS_clickHandler(event)"/>
+					<s:DropDownList id="dirsL"
+							dataProvider="{_dirs}"
+							change="dirsL_changeHandler(event)"/>
+					<s:Label text="Vars"/>
+					<s:List id="listVars"
+							dataProvider="{_vars}"
+							height="100%"
+							width="100%"
+							doubleClickEnabled="true"
+							doubleClick="listVars_clickHandler(event)"
+							change="listVars_clickHandler(event)"/>
+					<s:Label text="Funs"/>
+					<s:List id="listFuns"
+							dataProvider="{_funs}"
+							height="100%"
+							width="100%"
+							doubleClickEnabled="true"
+							doubleClick="listFuns_clickHandler(event)"
+							change="listFuns_clickHandler(event)"/>
+				</s:VGroup>
+				<mx:VDividedBox width="50%"
+						height="100%">
+					<s:VGroup width="100%"
+							height="50%">
+						<s:HGroup verticalAlign="middle"
+								width="100%">
+							<s:Button label="Execute"
+									click="execute()"/>
+							<s:Label text="or press ctrl+shift or ctrl+e to run selection/current line"/>
+							<mx:Spacer width="100%"/>
+							<s:Button label="Clear All"
+									click="commandText='';resultText=''"/>
+						</s:HGroup>
+						<s:TextArea id="command"
+								fontFamily="Courier New"
+								width="100%"
+								height="100%"
+								contentBackgroundColor="0x000000"
+								color="0x33FF66"
+								editable="true"
+								text="@{commandText}"
+								keyUp="tai_keyUpHandler(event)"/>
+					</s:VGroup>
+					<s:TextArea id="resultt"
+							fontFamily="Courier New"
+							width="100%"
+							height="50%"
+							contentBackgroundColor="0x000000"
+							color="0x33FF66"
+							text="@{resultText}"
+							editable="true"/>
+				</mx:VDividedBox>
+				<mx:TabNavigator creationPolicy="all"
+						width="25%"
+						height="100%">
+					<s:NavigatorContent label="q idioms"
+							width="100%"
+							height="100%">
+						<s:VGroup width="100%"
+								height="100%">
+							<s:TextInput text="@{idiomsFilter}"
+									change="filter_changeHandler(event)"
+									keyUp="filter_keyUpHandler(event)"/>
+							<s:List id="qidiomsHeadersL"
+									dataProvider="{qidiomsHeaders}"
+									labelField="line"
+									height="50%"
+									width="100%"
+									change="qidiomsHeadersL_changeHandler(event)"/>
+							<s:HGroup>
+								<s:Button label="&lt;&lt; Copy to editor"
+										click="appendCmd(qidiomsTopicsT.text.replace(qre, '  '))"/>
+								<s:Button label="Clear All"
+										click="commandText='';resultText=''"/>
+							</s:HGroup>
+							<s:TextArea id="qidiomsTopicsT"
+									fontFamily="Courier New"
+									width="100%"
+									height="50%"/>
+						</s:VGroup>
+					</s:NavigatorContent>
+					<s:NavigatorContent label="*scratch*"
+							width="100%"
+							height="100%">
+						<s:TextArea fontFamily="Courier New"
+								width="100%"
+								height="100%"/>
+					</s:NavigatorContent>
+				</mx:TabNavigator>
+			</mx:HDividedBox>
+			<s:TextArea id="log"
+					text="@{logText}"
+					fontFamily="Courier New"
+					width="100%"
+					height="20%"
+					editable="true"/>
+		</mx:VDividedBox>
+	</s:VGroup>
+</s:WindowedApplication>

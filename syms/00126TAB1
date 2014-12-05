@@ -1,0 +1,9 @@
+cusip=00126TAB1
+name=AGT LIMITED
+comment=
+type=CAN_CORP_BONDS
+mat=2025-Sep-22
+cpn=8.8
+cpn_freq=SEMI
+cur=CAD
+rating=A(low)
