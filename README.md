@@ -15,11 +15,8 @@ Asynchronous call (response ignored):
 ```
 q.kasync("x:1");
 ```
-Below are two sample applications that use as-q library. I am also attaching binaries for each application. Binaries are not signed, so you may receive an "unknown publisher" certificate warning. You may also get a prompt to install Adobe AIR runtime, which you need to run these applications.
+Below are two sample applications that use as-q library.
 
-I will be releasing the source code for both application and the library soon.
-
-If you find this project interesting, feel free to drop me a line at aboudarov@gmail.com (Alex Boudarov). Any feedback is welcome.
 ## QUI
 QUI is a q learning tool that uses as-q library. It is a basic q shell combined with q idioms' code. Log at the bottom shows IPC messages. Code edit view is separate from results view, CTRL+SHIFT execute current line or selection from code view.
 
