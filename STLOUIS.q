@@ -1,7 +1,22 @@
 \cd /home/alex/kdb/data
-\cd
+\cd 
+
+ loadY:{[sym]
+ t:.z.d;
+ y:string t.year;
+ m:string t.mm-1;
+ d:string t.dd;
+ system "rm table.csv"
+ system "curl -o table.csv http://real-chart.finance.yahoo.com/table.csv?s=",sym,"&d=",m,"&e=",d,"&f=",y,"&g=d&a=1&b=1&c=1000&ignore=.csv";
+ T:("DFFFFIF"; enlist ",") 0:`table.csv;
+ T:`Date`Open`High`Low`Close`Volume`AdjClose xcol T;
+ `DATE xkey select DATE:Date, VALUE:AdjClose from T
+ };
+
+reverse loadY "MSFT"
 
 loadFed:{[sym]
+ system "cd /home/alex/kdb/data";
  system "curl -o ",sym,".csv https://research.stlouisfed.org/fred2/series/",sym,"/downloaddata/",sym,".csv";
  `DATE xkey ("DF"; enlist ",") 0:`$sym,".csv"
  };
@@ -11,15 +26,27 @@ loadQuandlGold:{[]
  `DATE xkey (select DATE:Date, VALUE:Value from ("DF"; enlist ",") 0:`$"quandl-gold.csv")
  };
 
+loadQuandlUsdJpy:{[]
+ system "curl -o quandl-gold.csv https://www.quandl.com/api/v3/datasets/CURRFX/USDJPY.csv";
+ `DATE xkey (select DATE:Date, VALUE:Rate from ("DF"; enlist ",") 0:`$"quandl-gold.csv")
+ };
+
 avgByYear:{[tbl] select VALUE:avg[VALUE] by YEAR:DATE.year from tbl};
 
-divFed:{
+pair:{
  select YEAR, nom%den from 
  (`YEAR xkey select YEAR, nom:VALUE from avgByYear[x]) ij 
  (`YEAR xkey select YEAR, den:VALUE from avgByYear[y])
  };
 
+pairNoAggr:{
+ select DATE, nom%den from 
+ (`DATE xkey select DATE, nom:VALUE from x) ij 
+ (`DATE xkey select DATE, den:VALUE from y)
+ };
+
  /https://research.stlouisfed.org/fred2/tags/series?t=wages
+M2:loadFed "M2";
 DGS10:loadFed "DGS10";
 FEDFUNDS:loadFed "FEDFUNDS";
  /Consumer Price Index for All Urban Consumers: Meats, poultry, fish, and eggs
@@ -51,21 +78,28 @@ FEDMINNFRWG:loadFed "FEDMINNFRWG"
 
 QUANDLGLD:loadQuandlGold[]
 
-divFed[GOLDAMGBD228NLBM; A576RC1A027NBEA] /wages and salaries
-divFed[GOLDAMGBD228NLBM; AHETPI] /prod and non-superv
-divFed[GOLDAMGBD228NLBM; LES1252881600Q] /full time
-divFed[GOLDAMGBD228NLBM; FEDMINNFRWG] /min wage
-divFed[GOLDAMGBD228NLBM; CPIFABSL] /food and bev
-divFed[GOLDAMGBD228NLBM; CPIUFDNS] /food
-divFed[GOLDAMGBD228NLBM; CUSR0000SAF112] /meat and eggs
-divFed[GOLDAMGBD228NLBM; FEDFUNDS] /FEDFUNDS
-divFed[GOLDAMGBD228NLBM; DGS10] /10y tres
+pair[GOLDAMGBD228NLBM; A576RC1A027NBEA] /wages and salaries
+pair[GOLDAMGBD228NLBM; AHETPI] /prod and non-superv
+pair[GOLDAMGBD228NLBM; LES1252881600Q] /full time
+pair[GOLDAMGBD228NLBM; FEDMINNFRWG] /min wage
+pair[GOLDAMGBD228NLBM; CPIFABSL] /food and bev
+pair[GOLDAMGBD228NLBM; CPIUFDNS] /food
+pair[GOLDAMGBD228NLBM; CUSR0000SAF112] /meat and eggs
+pair[GOLDAMGBD228NLBM; FEDFUNDS] /FEDFUNDS
+pair[GOLDAMGBD228NLBM; DGS10] /10y tres
+pair[GOLDAMGBD228NLBM; M2] /M2
 
-divFed[CPIFABSL; A576RC1A027NBEA] /wages and salaries
-divFed[CPIFABSL; AHETPI] /prod and non-superv
-divFed[CPIFABSL; LES1252881600Q] /full time
-divFed[CPIFABSL; FEDMINNFRWG] /min wage
+pair[CPIFABSL; A576RC1A027NBEA] /wages and salaries
+pair[CPIFABSL; AHETPI] /prod and non-superv
+pair[CPIFABSL; LES1252881600Q] /full time
+pair[CPIFABSL; FEDMINNFRWG] /min wage
 
-divFed[A576RC1A027NBEA; AHETPI]
-divFed[A576RC1A027NBEA; LES1252881600Q]
-divFed[LES1252881600Q; AHETPI]
+pair[A576RC1A027NBEA; AHETPI]
+pair[A576RC1A027NBEA; LES1252881600Q]
+pair[LES1252881600Q; AHETPI]
+
+SPY:loadY "SPY"
+JPY:loadQuandlUsdJpy[]
+
+reverse pairNoAggr[SPY;JPY]
+reverse select from (`DATE xkey select DATE, spy:VALUE from SPY) ij (`DATE xkey select DATE, jpy:VALUE from JPY)
